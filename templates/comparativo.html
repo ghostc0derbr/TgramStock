@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório Comparativo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .divergencia {
+            background-color: #fef2f2; /* red-50 */
+        }
+        .divergencia td {
+            color: #991b1b; /* red-800 */
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 md:p-8">
+        <header class="mb-8">
+            <a href="{{ url_for('detalhes_inventario', inventario_id=inventario['id']) }}" class="text-blue-600 hover:text-blue-800 mb-4 inline-block">&larr; Voltar aos Detalhes</a>
+            <h1 class="text-3xl font-bold text-gray-900">Relatório Comparativo</h1>
+            <p class="text-gray-600">Inventário: <span class="font-semibold">{{ inventario['nome'] }}</span></p>
+        </header>
+
+        {% if not has_data %}
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <p class="text-gray-700">Nenhuma contagem foi registrada para este inventário ainda.</p>
+        </div>
+        {% else %}
+        <div class="bg-white rounded-lg shadow-md overflow-x-auto">
+            <table class="min-w-full leading-normal">
+                <thead>
+                    <tr class="border-b-2 border-gray-200 bg-gray-50 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                        <th class="px-5 py-3">Código</th>
+                        <th class="px-5 py-3">Descrição do Produto</th>
+                        {% for coluna in ordem_colunas %}
+                        <th class="px-5 py-3 text-center">{{ coluna }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in dados_comparativos %}
+                    <!-- Adiciona a classe 'divergencia' se houver diferença -->
+                    <tr class="border-b border-gray-200 hover:bg-gray-50 {% if item.divergencia %}divergencia{% endif %}">
+                        <td class="px-5 py-5 text-sm font-mono">
+                            {{ item.codigo }}
+                        </td>
+                        <td class="px-5 py-5 text-sm">
+                            <p class="text-gray-900 whitespace-no-wrap">{{ item.descricao }}</p>
+                        </td>
+                        <!-- Itera na ordem correta das colunas -->
+                        {% for coluna in ordem_colunas %}
+                        <td class="px-5 py-5 text-sm text-center font-semibold">
+                            <!-- Mostra o valor da contagem ou '-' se não foi contado -->
+                            {{ item.get(coluna, '-') }}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+    </div>
+</body>
+</html>

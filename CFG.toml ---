@@ -1,0 +1,61 @@
+# --- pyproject.toml ---
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telegram-inventory-bot"
+version = "1.0.0"
+authors = [
+  { name="GhostC0der" },
+]
+description = "Um sistema de contagem de inventário operado por um bot do Telegram com um dashboard web."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "python-telegram-bot",
+    "pandas",
+    "Flask",
+]
+
+[project.urls]
+Homepage = "https://github.com/GhostC0der/telegram-inventory-bot" # Exemplo
+Issues = "https://github.com/GhostC0der/telegram-inventory-bot/issues" # Exemplo
+
+# --- requirements.txt ---
+python-telegram-bot
+pandas
+Flask
+
+# --- .gitignore ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv
+venv/
+venv.bak/
+ENV/
+
+# Database file
+inventario.db
+*.db-journal
+
+# Instance folder
+instance/
+
+# Local directories
+/relatorios/
+/cadastros/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
