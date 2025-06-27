@@ -8,6 +8,7 @@ from datetime import datetime
 import threading
 import os
 import re
+import asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
@@ -20,7 +21,10 @@ from telegram.ext import (
     filters,
 )
 
-from dashboard import app as flask_app
+try:
+    from dashboard import app as flask_app
+except ImportError:
+    flask_app = None
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -90,6 +94,11 @@ def setup_database():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
+    
+    if not update.callback_query:
+        context.user_data.clear()
+        logger.info(f"Utilizador {user.id} iniciou uma nova sessão com /start. Dados de utilizador limpos.")
+
     keyboard = [
         [InlineKeyboardButton("🔢 Contagem", callback_data='menu_contagem')],
         [InlineKeyboardButton("📦 Cadastros", callback_data='menu_cadastro')],
@@ -122,7 +131,7 @@ async def menu_cadastro(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def exportar_produtos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Gerando lista de produtos...")
+    await query.edit_message_text("A gerar lista de produtos...")
 
     conn = sqlite3.connect(DB_FILE)
     df = pd.read_sql_query("SELECT codigo, descricao, data_cadastro FROM produtos ORDER BY codigo", conn)
@@ -166,7 +175,7 @@ async def receber_codigo_produto(update: Update, context: ContextTypes.DEFAULT_T
         return RECEBENDO_CODIGO_PRODUTO
     conn.close()
     context.user_data['novo_produto_codigo'] = codigo
-    await update.message.reply_text(f"Código `{codigo}` aceito.\n\nAgora, envie a **descrição** do produto.", parse_mode="Markdown")
+    await update.message.reply_text(f"Código `{codigo}` aceite.\n\nAgora, envie a **descrição** do produto.", parse_mode="Markdown")
     return RECEBENDO_DESCRICAO_PRODUTO
 
 async def receber_descricao_produto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -269,7 +278,7 @@ async def receber_quantidade_contagem(update: Update, context: ContextTypes.DEFA
     
     keyboard = [[InlineKeyboardButton("🔢 Contar Outro Item", callback_data=f'contagem_{tipo_contagem}')], [InlineKeyboardButton("🔙 Voltar ao Menu de Contagem", callback_data='voltar_contagem_menu')],]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(f"✅ **Contagem Registrada!**", reply_markup=reply_markup)
+    await update.message.reply_text(f"✅ **Contagem Registada!**", reply_markup=reply_markup)
     context.user_data.pop('codigo_contagem', None)
     context.user_data.pop('tipo_contagem', None)
     return CONTAGEM_CONCLUIDA
@@ -306,9 +315,22 @@ async def encerrar_inventario_prompt(update: Update, context: ContextTypes.DEFAU
     inventario_aberto = cursor.fetchone()
     conn.close()
     
+    if not inventario_aberto:
+        keyboard = [[InlineKeyboardButton("🔙 Voltar", callback_data='voltar_contagem_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text="⚠️ Não há nenhum inventário aberto para encerrar.", reply_markup=reply_markup)
+        return CONTAGEM_MENU
+
     context.user_data['inventario_a_encerrar'] = inventario_aberto
-    # LINHA CORRIGIDA: Removidos os caracteres especiais do exemplo.
-    await query.edit_message_text("Ok, vamos encerrar o inventário. Por favor, envie um **nome base** para os arquivos de relatório (ex: Relatorio Julho Loja A).", parse_mode="Markdown")
+    
+    keyboard = [[InlineKeyboardButton("🔙 Voltar", callback_data='voltar_contagem_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        "Ok, vamos encerrar o inventário. Por favor, envie um **nome base** para os arquivos de relatório (ex: Relatorio Julho Loja A).", 
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
     return RECEBENDO_NOME_RELATORIO
 
 async def receber_nome_relatorio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -316,6 +338,10 @@ async def receber_nome_relatorio(update: Update, context: ContextTypes.DEFAULT_T
     if not nome_base:
         await update.message.reply_text("O nome base não pode ser vazio. Tente novamente ou /cancelar.")
         return RECEBENDO_NOME_RELATORIO
+
+    if 'inventario_a_encerrar' not in context.user_data:
+        await update.message.reply_text("Ocorreu um erro. Por favor, comece de novo com /start.")
+        return await cancel(update, context)
 
     inventario_id, inventario_nome = context.user_data.get('inventario_a_encerrar')
 
@@ -338,7 +364,7 @@ def sanitize_filename(name):
 async def gerar_relatorios_e_encerrar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Processando... Gerando e salvando relatórios CSV. Aguarde.")
+    await query.edit_message_text("A processar... A gerar e a salvar relatórios CSV. Aguarde.")
     
     inventario_id, inventario_nome = context.user_data.get('inventario_a_encerrar')
     nome_base_relatorio = context.user_data.get('nome_base_relatorio')
@@ -380,81 +406,119 @@ async def gerar_relatorios_e_encerrar(update: Update, context: ContextTypes.DEFA
         final_message += f"{arquivos_gerados} relatório(s) foram gerados e salvos na pasta `{inventory_path}`."
     else:
         final_message += "Nenhum lançamento foi encontrado para gerar relatórios."
-
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message, parse_mode="Markdown")
+    
     context.user_data.clear()
-    await start(update, context)
-    return ConversationHandler.END
+    
+    keyboard = [[InlineKeyboardButton("🔙 Voltar ao Menu Principal", callback_data='voltar_menu_principal')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_message, reply_markup=reply_markup, parse_mode="Markdown")
+    
+    return MENU_PRINCIPAL
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     message_text = "Operação cancelada. Digite /start para começar de novo."
     
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text=message_text)
+        try:
+            await update.callback_query.edit_message_text(text=message_text)
+        except Exception:
+            await update.effective_message.reply_text(text=message_text)
     else:
         await update.message.reply_text(text=message_text)
         
     context.user_data.clear()
     return ConversationHandler.END
 
-def run_dashboard():
-    logger.info("Iniciando o servidor do Dashboard em http://127.0.0.1:5000")
-    flask_app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
-def main() -> None:
-    setup_filesystem()
-    setup_database()
+class BotRunner:
+    def __init__(self):
+        self.application = None
+        self.loop = None
+        self.shutdown_event = None
 
-    dashboard_thread = threading.Thread(target=run_dashboard)
-    dashboard_thread.daemon = True
-    dashboard_thread.start()
+    async def run_bot_async(self):
+        self.shutdown_event = asyncio.Event()
+        
+        self.application = Application.builder().token("7626314089:AAG_a_vShsFmnoq8yj4Xs89LCP9qv12vjvs").build()
 
-    application = Application.builder().token("7626314089:AAG_a_vShsFmnoq8yj4Xs89LCP9qv12vjvs").build()
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", start)],
+            states={
+                MENU_PRINCIPAL: [
+                    CallbackQueryHandler(menu_contagem, pattern='^menu_contagem$'),
+                    CallbackQueryHandler(menu_cadastro, pattern='^menu_cadastro$'),
+                    CallbackQueryHandler(start, pattern='^voltar_menu_principal$'),
+                ],
+                CADASTRO_MENU: [
+                    CallbackQueryHandler(iniciar_cadastro_produto, pattern='^cadastro_novo_produto$'),
+                    CallbackQueryHandler(exportar_produtos, pattern='^exportar_produtos$'),
+                    CallbackQueryHandler(start, pattern='^voltar_menu_principal$'),
+                ],
+                CADASTRO_CONCLUIDO: [
+                    CallbackQueryHandler(iniciar_cadastro_produto, pattern='^cadastro_novo_produto$'),
+                    CallbackQueryHandler(menu_cadastro, pattern='^voltar_cadastro_menu$'),
+                ],
+                CONTAGEM_MENU: [
+                    CallbackQueryHandler(iniciar_novo_inventario_prompt, pattern='^iniciar_inventario$'),
+                    CallbackQueryHandler(encerrar_inventario_prompt, pattern='^encerrar_inventario$'),
+                    CallbackQueryHandler(iniciar_contagem, pattern='^contagem_'),
+                    CallbackQueryHandler(start, pattern='^voltar_menu_principal$'),
+                ],
+                CONTAGEM_CONCLUIDA: [
+                    CallbackQueryHandler(iniciar_contagem, pattern='^contagem_'),
+                    CallbackQueryHandler(menu_contagem, pattern='^voltar_contagem_menu$'),
+                ],
+                RECEBENDO_NOME_RELATORIO: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_relatorio),
+                    CallbackQueryHandler(menu_contagem, pattern='^voltar_contagem_menu$'),
+                ],
+                CONFIRMAR_ENCERRAMENTO: [
+                    CallbackQueryHandler(gerar_relatorios_e_encerrar, pattern='^confirmar_encerramento$'),
+                    CallbackQueryHandler(menu_contagem, pattern='^voltar_contagem_menu$'),
+                ],
+                RECEBENDO_CODIGO_PRODUTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_codigo_produto)],
+                RECEBENDO_DESCRICAO_PRODUTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_descricao_produto)],
+                RECEBENDO_CODIGO_CONTAGEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_codigo_contagem)],
+                RECEBENDO_QUANTIDADE_CONTAGEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_quantidade_contagem)],
+                RECEBENDO_NOME_INVENTARIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_inventario)],
+            },
+            fallbacks=[CommandHandler("cancelar", cancel)],
+        )
 
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            MENU_PRINCIPAL: [
-                CallbackQueryHandler(menu_contagem, pattern='^menu_contagem$'),
-                CallbackQueryHandler(menu_cadastro, pattern='^menu_cadastro$'),
-            ],
-            CADASTRO_MENU: [
-                CallbackQueryHandler(iniciar_cadastro_produto, pattern='^cadastro_novo_produto$'),
-                CallbackQueryHandler(exportar_produtos, pattern='^exportar_produtos$'),
-                CallbackQueryHandler(start, pattern='^voltar_menu_principal$'),
-            ],
-            CADASTRO_CONCLUIDO: [
-                CallbackQueryHandler(iniciar_cadastro_produto, pattern='^cadastro_novo_produto$'),
-                CallbackQueryHandler(menu_cadastro, pattern='^voltar_cadastro_menu$'),
-            ],
-            CONTAGEM_MENU: [
-                CallbackQueryHandler(iniciar_novo_inventario_prompt, pattern='^iniciar_inventario$'),
-                CallbackQueryHandler(encerrar_inventario_prompt, pattern='^encerrar_inventario$'),
-                CallbackQueryHandler(iniciar_contagem, pattern='^contagem_'),
-                CallbackQueryHandler(start, pattern='^voltar_menu_principal$'),
-            ],
-            CONTAGEM_CONCLUIDA: [
-                 CallbackQueryHandler(iniciar_contagem, pattern='^contagem_'),
-                 CallbackQueryHandler(menu_contagem, pattern='^voltar_contagem_menu$'),
-            ],
-            RECEBENDO_NOME_RELATORIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_relatorio)],
-            CONFIRMAR_ENCERRAMENTO: [
-                CallbackQueryHandler(gerar_relatorios_e_encerrar, pattern='^confirmar_encerramento$'),
-                CallbackQueryHandler(menu_contagem, pattern='^voltar_contagem_menu$'),
-            ],
-            RECEBENDO_CODIGO_PRODUTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_codigo_produto)],
-            RECEBENDO_DESCRICAO_PRODUTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_descricao_produto)],
-            RECEBENDO_CODIGO_CONTAGEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_codigo_contagem)],
-            RECEBENDO_QUANTIDADE_CONTAGEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_quantidade_contagem)],
-            RECEBENDO_NOME_INVENTARIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_inventario)],
-        },
-        fallbacks=[CommandHandler("cancelar", cancel)],
-    )
+        self.application.add_handler(conv_handler)
+        
+        logger.info("Bot do Telegram a iniciar...")
+        
+        async with self.application:
+            await self.application.initialize()
+            await self.application.start()
+            await self.application.updater.start_polling()
+            logger.info("Bot do Telegram iniciado e a receber atualizações.")
+            
+            await self.shutdown_event.wait()
+            
+            logger.info("A parar o polling...")
+            await self.application.updater.stop()
 
-    application.add_handler(conv_handler)
-    logger.info("Bot do Telegram iniciado (v1.1 - hotfix). Pressione Ctrl+C para parar o sistema.")
-    application.run_polling()
+    def start(self):
+        setup_filesystem()
+        setup_database()
+        
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        
+        try:
+            self.loop.run_until_complete(self.run_bot_async())
+        finally:
+            self.loop.close()
+            logger.info("Loop de eventos do bot fechado.")
+
+    def stop(self):
+        if self.loop and self.shutdown_event and not self.shutdown_event.is_set():
+            logger.info("A solicitar paragem do bot...")
+            self.loop.call_soon_threadsafe(self.shutdown_event.set)
+
 
 if __name__ == "__main__":
-    main()
+    print("Este ficheiro não foi desenhado para ser executado diretamente. Execute 'app_launcher.py'.")

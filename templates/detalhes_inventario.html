@@ -5,44 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Detalhes do Inventário</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>body { font-family: 'Inter', sans-serif; }</style>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            color: #1a202c;
+        }
+    </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body class="antialiased">
 
-    <div class="container mx-auto p-4 sm:p-6 md:p-8">
-        <header class="mb-8">
-            <div class="flex justify-between items-center">
-                <div>
-                    <a href="{{ url_for('index') }}" class="text-blue-600 hover:text-blue-800 mb-4 inline-block">&larr; Voltar ao Dashboard</a>
-                    <h1 class="text-3xl font-bold text-gray-900">{{ inventario['nome'] }}</h1>
-                    <p class="text-gray-600">Iniciado em: {{ inventario['data_inicio'] }} | Status: <span class="font-semibold {% if inventario['status'] == 'Aberto' %}text-blue-600{% else %}text-green-600{% endif %}">{{ inventario['status'] }}</span></p>
-                </div>
-                <!-- NOVO BOTÃO DE COMPARATIVO -->
-                <a href="{{ url_for('comparativo_inventario', inventario_id=inventario['id']) }}" class="bg-yellow-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-yellow-600 transition-colors">
-                    Ver Comparativo
-                </a>
-            </div>
+    <div class="container mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
+        <!-- Cabeçalho -->
+        <header class="text-center mb-10">
+            <a href="{{ url_for('index') }}" class="text-indigo-600 hover:text-indigo-800 mb-4 inline-block">&larr; Voltar à Lista</a>
+            <h1 class="text-3xl font-bold tracking-tight text-gray-800">{{ inventario['nome'] }}</h1>
         </header>
 
-        <section>
-            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">Relatórios Individuais</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {% for tipo in tipos_contagem %}
-                <div class="bg-white p-6 rounded-lg shadow-md">
-                    <h3 class="text-xl font-bold text-gray-800">{{ tipo }}</h3>
-                    <p class="text-gray-500 mt-2">Clique abaixo para baixar o arquivo CSV.</p>
-                    <a href="{{ url_for('download_csv_contagem', inventario_id=inventario['id'], tipo_contagem=tipo) }}" class="mt-4 inline-block w-full text-center bg-green-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-600 transition-colors">
-                        Download CSV
-                    </a>
+        <!-- Menu de Ações -->
+        <div class="flex justify-center mb-10">
+             <a href="{{ url_for('comparativo_inventario', inventario_id=inventario['id']) }}" class="bg-yellow-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-yellow-600 transition-colors shadow-md">
+                Ver Relatório Comparativo
+            </a>
+        </div>
+
+        <!-- Secção de Relatórios Individuais -->
+        <main>
+            <div class="bg-white shadow-lg rounded-xl overflow-hidden">
+                 <div class="px-6 py-4 border-b border-gray-200">
+                    <h2 class="text-xl font-semibold text-gray-700">Relatórios Individuais para Download</h2>
                 </div>
-                {% else %}
-                <div class="col-span-full bg-white p-6 rounded-lg shadow-md">
-                    <p class="text-gray-700">Nenhuma contagem foi registrada para este inventário ainda.</p>
+                <div class="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {% for tipo in tipos_contagem %}
+                    <div class="border border-gray-200 rounded-lg p-4 text-center hover:shadow-lg transition-shadow">
+                        <h3 class="text-lg font-semibold text-gray-800">{{ tipo }}</h3>
+                        <a href="{{ url_for('download_csv_contagem', inventario_id=inventario['id'], tipo_contagem=tipo) }}" class="mt-4 inline-block w-full text-center bg-green-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-600 transition-colors">
+                            Baixar CSV
+                        </a>
+                    </div>
+                    {% else %}
+                    <div class="col-span-full text-center py-10 text-gray-500">
+                        <p>Nenhuma contagem foi registada para este inventário.</p>
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
             </div>
-        </section>
+        </main>
     </div>
 
 </body>

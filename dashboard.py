@@ -16,11 +16,11 @@ def get_db_connection():
 @app.route('/')
 def index():
     conn = get_db_connection()
-    inventario_aberto = conn.execute("SELECT * FROM inventarios WHERE status = 'Aberto' ORDER BY data_inicio DESC").fetchone()
-    inventarios_fechados = conn.execute("SELECT * FROM inventarios WHERE status = 'Fechado' ORDER BY data_fim DESC LIMIT 10").fetchall()
+    # Busca todos os inventários, ordenando pelos mais recentes primeiro
+    inventarios = conn.execute("SELECT * FROM inventarios ORDER BY data_inicio DESC").fetchall()
     conn.close()
     
-    return render_template('index.html', inventario_aberto=inventario_aberto, inventarios_fechados=inventarios_fechados)
+    return render_template('index.html', inventarios=inventarios)
 
 @app.route('/inventario/<int:inventario_id>')
 def detalhes_inventario(inventario_id):
@@ -84,11 +84,10 @@ def comparativo_inventario(inventario_id):
 
     return render_template('comparativo.html', inventario=inventario, dados_comparativos=dados_comparativos, ordem_colunas=ordem_colunas, has_data=True)
 
-
 @app.route('/download/inventario/<int:inventario_id>/<string:tipo_contagem>')
 def download_csv_contagem(inventario_id, tipo_contagem):
     conn = get_db_connection()
-    inventario = conn.execute("SELECT nome FROM inventarios WHERE id = ?", (inventario_id,)).fetchone()
+    inventario = conn.execute("SELECT nome, nome_base_relatorio FROM inventarios WHERE id = ?", (inventario_id,)).fetchone()
     if not inventario:
         conn.close()
         abort(404, description="Inventário não encontrado")
@@ -116,11 +115,12 @@ def download_csv_contagem(inventario_id, tipo_contagem):
 
     output = io.StringIO()
     df.to_csv(output, index=False)
-    output.seek(0)
-    file_name = f"{inventario['nome'].replace(' ', '_')}_{tipo_contagem.replace(' ', '_')}.csv"
+    
+    base_name = inventario['nome_base_relatorio'] if inventario['nome_base_relatorio'] else inventario['nome']
+    file_name = f"{base_name.replace(' ', '_')}_{tipo_contagem.replace(' ', '_')}.csv"
 
     return Response(
-        output,
+        output.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment;filename={file_name}"}
     )
@@ -143,15 +143,14 @@ def download_csv_produtos():
 
     output = io.StringIO()
     df.to_csv(output, index=False)
-    output.seek(0)
+    
     file_name = "lista_mestre_produtos.csv"
 
     return Response(
-        output,
+        output.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment;filename={file_name}"}
     )
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
-
